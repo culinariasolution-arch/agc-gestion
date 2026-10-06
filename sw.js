@@ -1,6 +1,6 @@
 // Service worker: guarda la app en el dispositivo para que abra al instante.
 // Sube el número de versión cada vez que cambie algún archivo de la app.
-const VERSION = 'tabian-v3';
+const VERSION = 'tabian-v4';
 const ARCHIVOS = [
   './', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/logo.png',
