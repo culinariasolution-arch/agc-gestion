@@ -158,6 +158,7 @@ function irA(vista) {
 const VISTAS = {
   inicio: vistaInicio,
   gastos: vistaGastos,
+  obras: vistaObras,
   ajustes: vistaAjustes,
 };
 
@@ -193,7 +194,9 @@ async function vistaInicio(el) {
     <p class="nota">Datos de tu hoja de Google</p>`;
 
   el.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => {
-    if (b.dataset.ir === 'gastos') abrirFormGasto(); else irA(b.dataset.ir);
+    if (b.dataset.ir === 'gastos') abrirFormGasto();
+    else if (b.dataset.ir === 'obras') abrirFormObra();
+    else irA(b.dataset.ir);
   }));
 
   const boton = $('#boton-recargar');
@@ -336,7 +339,7 @@ function detalleGasto(g) {
 }
 
 /* ---------- Formulario ---------- */
-async function abrirFormGasto() {
+async function abrirFormGasto(obraFija) {
   abrirHoja(`<div class="vacio"><p>Cargando…</p></div>`);
   const [listas, obras] = await Promise.all([cargarListas(), cargarObras()]);
   if (!listas) {
@@ -345,7 +348,7 @@ async function abrirFormGasto() {
     return;
   }
   const ultimoTipo = leerLocal('tabian_ultimo_tipo', '');
-  const ultimaObra = leerLocal('tabian_ultima_obra', 'GENERAL');
+  const ultimaObra = obraFija || leerLocal('tabian_ultima_obra', 'GENERAL');
   const obrasVisibles = obras.filter((o) => o.estado !== 'Anulada' && o.estado !== 'Terminada');
 
   abrirHoja(`
@@ -479,6 +482,274 @@ async function abrirFormGasto() {
   });
 }
 
+/* ================= OBRAS ================= */
+const pct = new Intl.NumberFormat('es-ES', { style: 'percent', maximumFractionDigits: 0 });
+const FILTROS_OBRAS = {
+  activas: (o) => ['Presupuestada', 'Confirmada', 'En curso'].includes(o.estado),
+  terminadas: (o) => o.estado === 'Terminada',
+  todas: () => true,
+};
+let filtroObras = 'activas';
+let obrasCache = [];
+
+function claseEstado(e) {
+  return { 'En curso': 'e-curso', 'Confirmada': 'e-confirmada', 'Presupuestada': 'e-presupuestada', 'Terminada': 'e-terminada', 'Anulada': 'e-anulada' }[e] || '';
+}
+function fechaTxt(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  return fechaCorta.format(new Date(y, m - 1, d));
+}
+function rangoFechas(o) {
+  const ini = fechaTxt(o.inicio);
+  const fin = fechaTxt(o.finReal || o.finPrevista);
+  if (!ini && !fin) return 'Sin fechas';
+  return `${ini || '¿?'} → ${fin || '¿?'}${!o.finReal && o.finPrevista ? ' (prevista)' : ''}`;
+}
+
+async function vistaObras(el) {
+  el.innerHTML = `
+    <h2 class="seccion-titulo">Obras</h2>
+    <div class="segmento segmento-3" id="o-filtro">
+      <button data-f="activas">Activas</button><button data-f="terminadas">Terminadas</button><button data-f="todas">Todas</button>
+    </div>
+    <div id="o-lista"><div class="vacio"><p>Cargando…</p></div></div>
+    <button class="fab" id="o-nueva" aria-label="Nueva obra">${ICONOS.mas}</button>`;
+  $('#o-nueva').addEventListener('click', () => abrirFormObra());
+  $('#o-filtro').querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('activo', b.dataset.f === filtroObras);
+    b.addEventListener('click', () => {
+      filtroObras = b.dataset.f;
+      $('#o-filtro').querySelectorAll('button').forEach((x) => x.classList.toggle('activo', x === b));
+      pintarObras();
+    });
+  });
+
+  const boton = $('#boton-recargar');
+  boton.classList.add('girando');
+  try {
+    obrasCache = await api('obrasDetalle');
+    pintarObras();
+  } catch (err) {
+    tratarError(err, $('#o-lista'));
+  } finally {
+    boton.classList.remove('girando');
+  }
+}
+
+function pintarObras() {
+  const cont = $('#o-lista');
+  if (!cont) return;
+  const lista = obrasCache.filter(FILTROS_OBRAS[filtroObras]);
+  if (!lista.length) {
+    cont.innerHTML = `<div class="vacio"><div class="icono-grande">${ICONOS.obra}</div>
+      <h2>${obrasCache.length ? 'No hay obras aquí' : 'Aún no hay obras'}</h2>
+      <p>${obrasCache.length ? 'Prueba con otro filtro.' : 'Pulsa el botón + para crear la primera.'}</p></div>`;
+    return;
+  }
+  cont.innerHTML = lista.map((o) => `
+    <button class="obra" data-id="${esc(o.id)}">
+      <div class="obra-cabecera">
+        <strong>${esc(o.obra)}</strong>
+        <span class="estado ${claseEstado(o.estado)}">${esc(o.estado)}</span>
+      </div>
+      <small>${esc([o.cliente, o.ubicacion].filter(Boolean).join(' · ') || 'Sin cliente')}</small>
+      <small class="obra-fechas">${rangoFechas(o)}</small>
+      <div class="obra-cifras">
+        <div><span>Importe</span><strong class="num">${eur.format(o.importe)}</strong></div>
+        <div><span>Beneficio</span><strong class="num ${o.beneficio < 0 ? 'rojo' : ''}">${eur.format(o.beneficio)}</strong></div>
+        <div><span>Por día</span><strong class="num">${o.dias ? eur.format(o.beneficioDia) : '–'}</strong></div>
+      </div>
+    </button>`).join('');
+  cont.querySelectorAll('.obra').forEach((b) => b.addEventListener('click', () => {
+    const o = obrasCache.find((x) => x.id === b.dataset.id);
+    if (o) detalleObra(o);
+  }));
+}
+
+function siguientePaso(o) {
+  if (o.estado === 'Presupuestada') return { texto: 'Confirmar obra', cambios: { estado: 'Confirmada' } };
+  if (o.estado === 'Confirmada') return { texto: 'Empezar hoy', cambios: { estado: 'En curso', inicio: o.inicio || hoyISO() } };
+  if (o.estado === 'En curso') return { texto: 'Terminar hoy', cambios: { estado: 'Terminada', finReal: hoyISO() } };
+  return null;
+}
+
+function detalleObra(o) {
+  const paso = siguientePaso(o);
+  const terminada = o.estado === 'Terminada';
+  const cobro = o.cantidad && o.precio
+    ? `${o.cantidad.toLocaleString('es-ES')} ${o.cobroPor === 'Día' ? 'días' : 'm²'} × ${eur.format(o.precio)}`
+    : '';
+  abrirHoja(`
+    <div class="hoja-cabecera"><h2>${esc(o.obra)}</h2><button class="cerrar" data-cerrar aria-label="Cerrar">✕</button></div>
+    <span class="estado ${claseEstado(o.estado)}">${esc(o.estado)}</span>
+    ${paso ? `<button class="boton boton-paso" id="d-paso">${paso.texto}</button>` : ''}
+
+    <div class="cifras">
+      <div><span>Importe</span><strong class="num">${eur.format(o.importe)}</strong></div>
+      <div><span>Gastos</span><strong class="num">${eur.format(o.gastado)}</strong></div>
+      <div><span>${terminada ? 'Beneficio' : 'Beneficio estimado'}</span><strong class="num ${o.beneficio < 0 ? 'rojo' : 'verde'}">${eur.format(o.beneficio)}</strong></div>
+      <div><span>Margen</span><strong class="num">${o.importe ? pct.format(o.margen) : '–'}</strong></div>
+      <div><span>Días trabajados</span><strong class="num">${o.dias || '–'}</strong></div>
+      <div><span>Beneficio por día</span><strong class="num">${o.dias ? eur.format(o.beneficioDia) : '–'}</strong></div>
+      <div><span>Cobrado</span><strong class="num">${eur.format(o.cobrado)}</strong></div>
+      <div><span>Pendiente de cobro</span><strong class="num">${eur.format(o.pendiente)}</strong></div>
+    </div>
+    ${!terminada && o.importe ? '<p class="nota nota-izq">El beneficio es estimado: se calcula con el importe total de la obra y los gastos apuntados hasta hoy.</p>' : ''}
+
+    <div class="detalle">
+      ${o.cliente ? `<div><span>Cliente</span><strong>${esc(o.cliente)}</strong></div>` : ''}
+      ${o.ubicacion ? `<div><span>Ubicación</span><strong>${esc(o.ubicacion)}</strong></div>` : ''}
+      ${o.trabajo ? `<div><span>Trabajo</span><strong>${esc(o.trabajo)}</strong></div>` : ''}
+      ${cobro ? `<div><span>Cobro</span><strong>${cobro}</strong></div>` : ''}
+      <div><span>Inicio</span><strong>${fechaTxt(o.inicio) || '–'}</strong></div>
+      <div><span>Fin prevista</span><strong>${fechaTxt(o.finPrevista) || '–'}</strong></div>
+      <div><span>Fin real</span><strong>${fechaTxt(o.finReal) || '–'}</strong></div>
+      ${o.notas ? `<div><span>Notas</span><strong>${esc(o.notas)}</strong></div>` : ''}
+    </div>
+
+    <div class="botones-fila">
+      <button class="boton boton-secundario" id="d-gasto">Añadir gasto</button>
+      <button class="boton boton-secundario" id="d-editar">Editar</button>
+    </div>
+    <button class="boton boton-peligro" id="d-borrar">Eliminar obra</button>`);
+
+  if (paso) $('#d-paso').addEventListener('click', async () => {
+    const b = $('#d-paso'); b.disabled = true; b.textContent = 'Guardando…';
+    try {
+      await apiPost('guardarObra', Object.assign({}, o, paso.cambios));
+      cerrarHoja(); aviso(`Obra ${paso.cambios.estado.toLowerCase()}`, 'ok'); irA('obras');
+    } catch (err) {
+      aviso(err.sinRed ? 'Sin conexión' : err.message, 'mal'); b.disabled = false; b.textContent = paso.texto;
+    }
+  });
+  $('#d-gasto').addEventListener('click', () => abrirFormGasto(o.id));
+  $('#d-editar').addEventListener('click', () => abrirFormObra(o));
+  $('#d-borrar').addEventListener('click', async () => {
+    if (!confirm('¿Eliminar esta obra? No se puede deshacer.')) return;
+    const b = $('#d-borrar'); b.disabled = true; b.textContent = 'Eliminando…';
+    try {
+      await apiPost('borrarObra', { id: o.id });
+      cerrarHoja(); aviso('Obra eliminada', 'ok'); irA('obras');
+    } catch (err) {
+      aviso(err.sinRed ? 'Sin conexión' : err.message, 'mal'); b.disabled = false; b.textContent = 'Eliminar obra';
+    }
+  });
+}
+
+async function abrirFormObra(o) {
+  const editando = !!o;
+  o = o || { estado: 'Confirmada', cobroPor: 'm²' };
+  abrirHoja(`<div class="vacio"><p>Cargando…</p></div>`);
+  const listas = await cargarListas();
+  const estados = (listas && listas.estadosObra) || ['Presupuestada', 'Confirmada', 'En curso', 'Terminada', 'Anulada'];
+  const v = (x) => esc(x ?? '');
+
+  abrirHoja(`
+    <form id="f-obra" novalidate>
+      <div class="hoja-cabecera"><h2>${editando ? 'Editar obra' : 'Nueva obra'}</h2><button type="button" class="cerrar" data-cerrar aria-label="Cerrar">✕</button></div>
+
+      <label class="campo-grupo"><span class="etiqueta-campo">Nombre de la obra *</span>
+        <input id="o-nombre" class="campo" placeholder="Ej. Adosados Avda. Libertad" maxlength="120" value="${v(o.obra)}"></label>
+      <div class="dos-columnas">
+        <label class="campo-grupo"><span class="etiqueta-campo">Cliente</span>
+          <input id="o-cliente" class="campo" placeholder="Constructora…" maxlength="120" value="${v(o.cliente)}"></label>
+        <label class="campo-grupo"><span class="etiqueta-campo">Ubicación</span>
+          <input id="o-ubicacion" class="campo" placeholder="Elche" maxlength="120" value="${v(o.ubicacion)}"></label>
+      </div>
+      <label class="campo-grupo"><span class="etiqueta-campo">Trabajo</span>
+        <input id="o-trabajo" class="campo" placeholder="Tabiquería planta baja y 1ª" maxlength="200" value="${v(o.trabajo)}"></label>
+
+      <span class="etiqueta-campo campo-grupo">Estado</span>
+      <div class="chips" id="o-estados">
+        ${estados.map((e) => `<button type="button" data-estado="${esc(e)}" class="${e === o.estado ? 'activo' : ''}">${esc(e)}</button>`).join('')}
+      </div>
+
+      <span class="etiqueta-campo campo-grupo">Cobro</span>
+      <div class="segmento" id="o-cobro">
+        <button type="button" data-c="m²" class="${o.cobroPor !== 'Día' ? 'activo' : ''}">Por m²</button>
+        <button type="button" data-c="Día" class="${o.cobroPor === 'Día' ? 'activo' : ''}">Por día</button>
+      </div>
+      <div class="dos-columnas">
+        <label class="campo-grupo"><span class="etiqueta-campo" id="o-cant-et">${o.cobroPor === 'Día' ? 'Días' : 'Metros²'}</span>
+          <input id="o-cantidad" class="campo num" inputmode="decimal" placeholder="0" value="${o.cantidad || ''}"></label>
+        <label class="campo-grupo"><span class="etiqueta-campo" id="o-precio-et">${o.cobroPor === 'Día' ? 'Precio por día' : 'Precio por m²'}</span>
+          <input id="o-precio" class="campo num" inputmode="decimal" placeholder="0,00 €" value="${o.precio ? String(o.precio).replace('.', ',') : ''}"></label>
+      </div>
+      <p class="calculo num" id="o-importe">&nbsp;</p>
+
+      <div class="dos-columnas">
+        <label class="campo-grupo"><span class="etiqueta-campo">Inicio</span>
+          <input id="o-inicio" type="date" class="campo" value="${v(o.inicio)}"></label>
+        <label class="campo-grupo"><span class="etiqueta-campo">Fin prevista</span>
+          <input id="o-finp" type="date" class="campo" value="${v(o.finPrevista)}"></label>
+        <label class="campo-grupo"><span class="etiqueta-campo">Fin real</span>
+          <input id="o-finr" type="date" class="campo" value="${v(o.finReal)}"></label>
+      </div>
+
+      <label class="campo-grupo"><span class="etiqueta-campo">Notas</span>
+        <textarea id="o-notas" class="campo" rows="2" maxlength="500">${v(o.notas)}</textarea></label>
+
+      <p class="error" id="o-error" hidden></p>
+      <button type="submit" class="boton" id="o-guardar">${editando ? 'Guardar cambios' : 'Crear obra'}</button>
+    </form>`);
+
+  let estado = o.estado;
+  let cobroPor = o.cobroPor === 'Día' ? 'Día' : 'm²';
+  const numero = (sel) => {
+    let t = String($(sel).value).trim().replace(/\s|€/g, '');
+    if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+    else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+    return t === '' ? '' : Number(t);
+  };
+  const recalcular = () => {
+    const c = numero('#o-cantidad'); const p = numero('#o-precio');
+    $('#o-importe').textContent = c > 0 && p > 0 ? `Importe de la obra: ${eur.format(c * p)} + IVA` : '\u00a0';
+  };
+  $('#o-cantidad').addEventListener('input', recalcular);
+  $('#o-precio').addEventListener('input', recalcular);
+  recalcular();
+  $('#o-estados').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    estado = b.dataset.estado;
+    $('#o-estados').querySelectorAll('button').forEach((x) => x.classList.toggle('activo', x === b));
+  }));
+  $('#o-cobro').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    cobroPor = b.dataset.c;
+    $('#o-cobro').querySelectorAll('button').forEach((x) => x.classList.toggle('activo', x === b));
+    $('#o-cant-et').textContent = cobroPor === 'Día' ? 'Días' : 'Metros²';
+    $('#o-precio-et').textContent = cobroPor === 'Día' ? 'Precio por día' : 'Precio por m²';
+  }));
+  if (!editando) setTimeout(() => $('#o-nombre').focus(), 250);
+
+  $('#f-obra').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const error = $('#o-error');
+    const cantidad = numero('#o-cantidad'); const precio = numero('#o-precio');
+    let fallo = '';
+    if (!$('#o-nombre').value.trim()) fallo = 'Escribe el nombre de la obra.';
+    else if ((cantidad !== '' && isNaN(cantidad)) || (precio !== '' && isNaN(precio))) fallo = 'Revisa la cantidad y el precio.';
+    if (fallo) { error.textContent = fallo; error.hidden = false; return; }
+    error.hidden = true;
+    const datos = {
+      id: editando ? o.id : undefined,
+      obra: $('#o-nombre').value.trim(), cliente: $('#o-cliente').value.trim(),
+      ubicacion: $('#o-ubicacion').value.trim(), trabajo: $('#o-trabajo').value.trim(),
+      estado, cobroPor, cantidad, precio,
+      inicio: $('#o-inicio').value, finPrevista: $('#o-finp').value, finReal: $('#o-finr').value,
+      notas: $('#o-notas').value.trim(),
+    };
+    const b = $('#o-guardar'); b.disabled = true; b.textContent = 'Guardando…';
+    try {
+      await apiPost('guardarObra', datos);
+      cargarObras(); // actualiza la lista del formulario de gastos
+      cerrarHoja(); aviso(editando ? 'Obra actualizada' : 'Obra creada', 'ok'); irA('obras');
+    } catch (err) {
+      error.textContent = err.sinRed ? 'Sin conexión: las obras necesitan cobertura para guardarse.' : err.message;
+      error.hidden = false; b.disabled = false; b.textContent = editando ? 'Guardar cambios' : 'Crear obra';
+    }
+  });
+}
+
 /* ---------- Hoja deslizante (formularios y detalles) ---------- */
 function abrirHoja(html) {
   const fondo = $('#hoja-fondo');
@@ -514,7 +785,7 @@ function vistaAjustes(el) {
       <button class="fila" id="probar">Probar conexión</button>
       <button class="fila peligro" id="salir">Cambiar clave de acceso</button>
     </div>
-    <p class="nota">Tabi An · versión 0.4</p>`;
+    <p class="nota">Tabi An · versión 0.5</p>`;
   $('#probar').addEventListener('click', async () => {
     try { const d = await api('ping'); aviso(d.mensaje, 'ok'); } catch (err) { aviso(err.message, 'mal'); }
   });

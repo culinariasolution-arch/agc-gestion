@@ -308,3 +308,42 @@ input[type="date"].campo { min-height: 54px; }
 .detalle > div:last-child { border-bottom: 0; }
 .detalle span { color: var(--texto-suave); }
 .detalle strong { font-weight: 600; text-align: right; }
+
+/* ---------- Obras ---------- */
+.segmento-3 { grid-template-columns: repeat(3, 1fr); margin-bottom: 14px; background: var(--linea); }
+.obra {
+  display: block; width: 100%; text-align: left; margin-bottom: 12px;
+  background: var(--superficie); border-radius: var(--radio); box-shadow: var(--sombra); padding: 16px;
+}
+.obra:active { transform: scale(.99); }
+.obra-cabecera { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 2px; }
+.obra-cabecera strong { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.obra small { display: block; color: var(--texto-suave); font-size: 13px; }
+.obra-fechas { margin-top: 2px; }
+.obra-cifras { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--linea); }
+.obra-cifras span { display: block; font-size: 12px; color: var(--texto-suave); }
+.obra-cifras strong { font-size: 15px; font-weight: 600; }
+
+.estado { flex: none; display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--fondo); color: var(--texto-suave); white-space: nowrap; }
+.e-curso { background: #FEF3C7; color: #92400E; }
+.e-confirmada { background: #DBEAFE; color: #1E40AF; }
+.e-presupuestada { background: #F1F5F9; color: #475569; }
+.e-terminada { background: #DCFCE7; color: #166534; }
+.e-anulada { background: #F5F5F4; color: #A8A29E; text-decoration: line-through; }
+.rojo { color: var(--rojo); }
+.verde { color: var(--verde); }
+
+.boton-paso { margin: 14px 0 4px; }
+.cifras { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--linea); border-radius: 16px; overflow: hidden; margin: 14px 0 8px; }
+.cifras > div { background: var(--fondo); padding: 12px 14px; }
+.cifras span { display: block; font-size: 12px; color: var(--texto-suave); }
+.cifras strong { font-size: 18px; font-weight: 700; }
+.nota-izq { text-align: left; margin: 4px 2px 14px; }
+.botones-fila { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.boton-secundario { background: var(--marca-suave); color: var(--marca); }
+.boton-secundario:active { background: #F6DCD1; }
+.botones-fila + .boton-peligro { margin-top: 10px; }
+textarea.campo { resize: vertical; font-family: inherit; }
+#f-obra .boton { margin-top: 22px; }
+.dos-columnas > * { min-width: 0; }
+input[type="date"].campo { width: 100%; min-width: 0; }

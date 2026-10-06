@@ -1,6 +1,6 @@
 /**
  * AGC Construcciones · API sobre Google Sheets
- * Paso 3: estructura de la hoja, API protegida con clave y gastos.
+ * Paso 4: estructura de la hoja, API protegida con clave, gastos y obras.
  *
  * La PWA llama a esta API con:
  *   GET  <url>?accion=ping&clave=XXXX
@@ -8,7 +8,7 @@
  */
 
 const APP_NAME = 'AGC Construcciones';
-const VERSION_API = 2;
+const VERSION_API = 3;
 
 // Pestañas de datos: cada fila es un registro. No se escriben fórmulas en ellas.
 const TABLAS = {
@@ -177,6 +177,9 @@ const ACCIONES = {
   inicio: getInicio_,
   listas: getListas_,
   obras: getObras_,
+  obrasDetalle: getObrasDetalle_,
+  guardarObra: guardarObra_,
+  borrarObra: borrarObra_,
   gastos: getGastos_,
   nuevoGasto: nuevoGasto_,
   borrarGasto: borrarGasto_,
@@ -275,11 +278,12 @@ function getListas_() {
 /* ================================================================== */
 
 const ORDEN_ESTADO = { 'En curso': 0, 'Confirmada': 1, 'Presupuestada': 2, 'Terminada': 3, 'Anulada': 4 };
+function ordenEstado_(e) { return e in ORDEN_ESTADO ? ORDEN_ESTADO[e] : 9; }
 
 function getObras_() {
   return leerTabla_('Obras', true)
     .map(function (o) { return { id: String(o['ID']), obra: o['Obra'], estado: o['Estado'], ubicacion: o['Ubicación'] }; })
-    .sort(function (a, b) { return (ORDEN_ESTADO[a.estado] || 9) - (ORDEN_ESTADO[b.estado] || 9); });
+    .sort(function (a, b) { return ordenEstado_(a.estado) - ordenEstado_(b.estado); });
 }
 
 /* ================================================================== */
@@ -389,3 +393,154 @@ function aFecha_(texto) {
 }
 
 function redondear_(n) { return Math.round(n * 100) / 100; }
+
+/* ================================================================== */
+/* Obras: detalle, alta, edición y borrado                             */
+/* ================================================================== */
+
+const CAMPOS_OBRA = ['obra', 'cliente', 'ubicacion', 'trabajo', 'estado', 'inicio', 'finPrevista', 'finReal',
+                     'cobroPor', 'cantidad', 'precio', 'notas'];
+
+/** Días laborables (lunes a viernes) entre dos fechas, ambas incluidas. */
+function diasLaborables_(desde, hasta) {
+  if (!(desde instanceof Date) || !(hasta instanceof Date) || hasta < desde) return 0;
+  let n = 0;
+  const d = new Date(desde.getFullYear(), desde.getMonth(), desde.getDate());
+  const fin = new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate());
+  while (d <= fin) {
+    const dia = d.getDay();
+    if (dia !== 0 && dia !== 6) n++;
+    d.setDate(d.getDate() + 1);
+  }
+  return n;
+}
+
+/** Obras con sus cifras: importe, gastos, cobrado, beneficio, margen y beneficio por día. */
+function getObrasDetalle_() {
+  const hoy = new Date();
+  const gastos = leerTabla_('Gastos');
+  const cobros = leerTabla_('Cobros');
+  const gastosPorObra = {};
+  gastos.forEach(function (g) {
+    if (g['Tipo'] === 'IRPF propio (130)') return;
+    const id = String(g['ID obra']);
+    gastosPorObra[id] = (gastosPorObra[id] || 0) + (Number(g['Base']) || 0);
+  });
+  const cobradoPorObra = {};
+  cobros.forEach(function (c) {
+    const id = String(c['ID obra']);
+    cobradoPorObra[id] = (cobradoPorObra[id] || 0) + (Number(c['Base']) || 0);
+  });
+
+  return leerTabla_('Obras').map(function (o) {
+    const id = String(o['ID']);
+    const cantidad = Number(o['Cantidad']) || 0;
+    const precio = Number(o['Precio']) || 0;
+    const importe = redondear_(cantidad * precio);
+    const gastado = redondear_(gastosPorObra[id] || 0);
+    const cobrado = redondear_(cobradoPorObra[id] || 0);
+    const inicio = o['Inicio'] instanceof Date ? o['Inicio'] : null;
+    const finReal = o['Fin real'] instanceof Date ? o['Fin real'] : null;
+    let dias = 0;
+    if (inicio && finReal) dias = diasLaborables_(inicio, finReal);
+    else if (inicio && o['Estado'] === 'En curso' && inicio <= hoy) dias = diasLaborables_(inicio, hoy);
+    const beneficio = redondear_(importe - gastado);
+    return {
+      id: id, obra: o['Obra'], cliente: o['Cliente'], ubicacion: o['Ubicación'], trabajo: o['Trabajo'],
+      estado: o['Estado'], inicio: aTexto_(o['Inicio']), finPrevista: aTexto_(o['Fin prevista']),
+      finReal: aTexto_(o['Fin real']), cobroPor: o['Cobro por'], cantidad: cantidad, precio: precio,
+      notas: o['Notas'],
+      importe: importe, gastado: gastado, cobrado: cobrado, pendiente: redondear_(importe - cobrado),
+      beneficio: beneficio, margen: importe ? beneficio / importe : 0,
+      dias: dias, beneficioDia: dias ? redondear_(beneficio / dias) : 0,
+    };
+  }).sort(function (a, b) {
+    const e = ordenEstado_(a.estado) - ordenEstado_(b.estado);
+    if (e) return e;
+    return String(b.inicio || '') < String(a.inicio || '') ? -1 : 1;
+  });
+}
+
+/** Crea una obra (sin id) o la actualiza (con id). */
+function guardarObra_(d) {
+  const nombre = String(d.obra || '').trim();
+  if (!nombre) throw new Error('Falta el nombre de la obra');
+  const estados = getListas_().estadosObra;
+  const estado = d.estado || 'Confirmada';
+  if (estados.indexOf(estado) < 0) throw new Error('Estado no válido');
+  const fecha = function (v, campo) {
+    if (v === '' || v === null || v === undefined) return '';
+    const f = aFecha_(v);
+    if (!f) throw new Error('Fecha no válida: ' + campo);
+    return f;
+  };
+  const inicio = fecha(d.inicio, 'inicio');
+  const finPrevista = fecha(d.finPrevista, 'fin prevista');
+  const finReal = fecha(d.finReal, 'fin real');
+  if (inicio && finReal && finReal < inicio) throw new Error('La fecha de fin no puede ser anterior al inicio');
+  const num = function (v) { return v === '' || v === null || v === undefined ? '' : Number(v); };
+  const cantidad = num(d.cantidad);
+  const precio = num(d.precio);
+  if ((cantidad !== '' && (isNaN(cantidad) || cantidad < 0)) || (precio !== '' && (isNaN(precio) || precio < 0))) {
+    throw new Error('Cantidad o precio no válidos');
+  }
+
+  const valores = [
+    nombre, String(d.cliente || '').trim(), String(d.ubicacion || '').trim(), String(d.trabajo || '').trim(),
+    estado, inicio, finPrevista, finReal, d.cobroPor || '', cantidad, precio, String(d.notas || '').slice(0, 500),
+  ];
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName('Obras');
+    if (!d.id) {
+      const id = nuevoId_('O');
+      hoja.appendRow([id].concat(valores).concat([new Date()]));
+      return { id: id };
+    }
+    const fila = filaDeId_(hoja, String(d.id));
+    if (!fila) throw new Error('No se ha encontrado la obra');
+    const anterior = hoja.getRange(fila, 2).getValue();
+    hoja.getRange(fila, 2, 1, valores.length).setValues([valores]);
+    // Si cambia el nombre, se actualiza también en sus gastos y cobros
+    if (anterior !== nombre) renombrarObraEn_(ss, String(d.id), nombre);
+    return { id: d.id };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function renombrarObraEn_(ss, id, nombre) {
+  [['Gastos', 3, 4], ['Cobros', 3, 4]].forEach(function (t) {
+    const hoja = ss.getSheetByName(t[0]);
+    if (!hoja || hoja.getLastRow() < 2) return;
+    const rango = hoja.getRange(2, t[1], hoja.getLastRow() - 1, 2);
+    const filas = rango.getValues();
+    let cambiado = false;
+    filas.forEach(function (f) { if (String(f[0]) === id) { f[1] = nombre; cambiado = true; } });
+    if (cambiado) rango.setValues(filas);
+  });
+}
+
+/** Solo se puede borrar una obra sin gastos ni cobros (para no dejar datos huérfanos). */
+function borrarObra_(d) {
+  const id = String(d.id);
+  const ss = SpreadsheetApp.getActive();
+  const tieneMovimientos = ['Gastos', 'Cobros'].some(function (n) {
+    return leerTabla_(n).some(function (r) { return String(r['ID obra']) === id; });
+  });
+  if (tieneMovimientos) throw new Error('Esta obra tiene gastos o cobros. Cámbiala a "Anulada" en lugar de borrarla.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const hoja = ss.getSheetByName('Obras');
+    const fila = filaDeId_(hoja, id);
+    if (!fila) throw new Error('No se ha encontrado la obra');
+    hoja.deleteRow(fila);
+    return { id: id };
+  } finally {
+    lock.releaseLock();
+  }
+}
