@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#B5502F">
+  <meta name="theme-color" content="#F7F5F3">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="AGC">
-  <title>AGC Construcciones</title>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Tabi An">
+  <title>Tabi An</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -16,11 +16,11 @@
 <body>
   <!-- Pantalla de acceso: solo la primera vez -->
   <section id="vista-acceso" class="acceso" hidden>
-    <img src="icons/icon-192.png" alt="" class="acceso-logo">
-    <h1>AGC Construcciones</h1>
+    <img src="icons/logo.png" alt="Tabi An, tabiquería y obra" class="acceso-logo">
+    <h1>Bienvenido</h1>
     <p>Escribe tu clave de acceso. Se guarda en este dispositivo y no te la volverá a pedir.</p>
     <form id="form-acceso">
-      <input id="campo-clave" type="password" autocomplete="current-password" placeholder="Clave de acceso" required>
+      <input id="campo-clave" class="campo" type="password" autocomplete="current-password" placeholder="Clave de acceso" required>
       <button type="submit" class="boton">Entrar</button>
       <p id="error-acceso" class="error" hidden></p>
     </form>
@@ -29,7 +29,10 @@
   <!-- App -->
   <div id="vista-app" hidden>
     <header class="cabecera">
-      <h1 id="titulo">Inicio</h1>
+      <div class="marca">
+        <img src="icons/logo.png" alt="">
+        <h1>Tabi An</h1>
+      </div>
       <button id="boton-recargar" class="icono-boton" aria-label="Actualizar">
         <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
       </button>

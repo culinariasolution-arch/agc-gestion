@@ -1,8 +1,8 @@
-/* AGC Construcciones · PWA
+/* Tabi An · PWA
  * Paso 2: acceso con clave, navegación y pantalla de inicio con datos reales.
  */
 
-const CLAVE_LS = 'agc_clave';
+const CLAVE_LS = 'agc_clave'; // se mantiene el nombre para no pedir la clave otra vez
 const $ = (sel) => document.querySelector(sel);
 
 const eur = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', useGrouping: 'always' });
@@ -80,7 +80,6 @@ $('#boton-recargar').addEventListener('click', () => irA(vistaActual));
 function irA(vista) {
   vistaActual = vista;
   document.querySelectorAll('.barra button').forEach((b) => b.classList.toggle('activo', b.dataset.vista === vista));
-  $('#titulo').textContent = TITULOS[vista];
   const pintar = VISTAS[vista] || vistaProximamente;
   pintar($('#contenido'));
   window.scrollTo(0, 0);
@@ -92,38 +91,63 @@ const VISTAS = {
   ajustes: vistaAjustes,
 };
 
+const ICONOS = {
+  gasto: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3"/></svg>',
+  cobro: '<svg viewBox="0 0 24 24"><path d="M3 7h18v10H3zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>',
+  obra: '<svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6"/></svg>',
+  mas: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+};
+
 async function vistaInicio(el) {
   el.innerHTML = `
-    <p class="subtitulo" id="mes">&nbsp;</p>
-    <div class="tarjetas">
-      ${['cobrado', 'gastos', 'beneficio', 'obras'].map((k) => `
-        <article class="tarjeta cargando" id="t-${k}"><span class="etiqueta">&nbsp;</span><strong>&nbsp;</strong></article>`).join('')}
+    <span class="chip" id="mes">Este mes</span>
+    <section class="hero cargando" id="hero">
+      <span class="etiqueta">Beneficio del mes</span>
+      <strong class="grande num" id="h-beneficio">0,00 €</strong>
+      <div class="pareja">
+        <div class="mini"><span>Cobrado</span><strong class="num" id="h-cobrado">0,00 €</strong></div>
+        <div class="mini"><span>Gastos</span><strong class="num" id="h-gastos">0,00 €</strong></div>
+      </div>
+    </section>
+
+    <div class="acciones">
+      <button class="accion" data-ir="gastos"><i>${ICONOS.mas}</i>Gasto</button>
+      <button class="accion" data-ir="cobros"><i>${ICONOS.mas}</i>Cobro</button>
+      <button class="accion" data-ir="obras"><i>${ICONOS.mas}</i>Obra</button>
     </div>
-    <p class="nota">Los datos salen directamente de tu hoja de Google.</p>`;
+
+    <article class="tarjeta cargando" id="t-obras">
+      <span class="icono">${ICONOS.obra}</span>
+      <div><span class="etiqueta">Obras en curso</span><br><strong class="num" id="n-obras">0</strong></div>
+    </article>
+    <p class="nota">Datos de tu hoja de Google</p>`;
+
+  el.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => irA(b.dataset.ir)));
+
+  const boton = $('#boton-recargar');
+  boton.classList.add('girando');
   try {
     const d = await api('inicio');
     const beneficio = d.cobradoMes - d.gastosMes;
-    $('#mes').textContent = 'Resumen de ' + d.mes;
-    pintarTarjeta('cobrado', 'Cobrado este mes', eur.format(d.cobradoMes));
-    pintarTarjeta('gastos', 'Gastos este mes', eur.format(d.gastosMes));
-    pintarTarjeta('beneficio', 'Beneficio del mes', eur.format(beneficio), beneficio < 0 ? 'negativo' : 'positivo');
-    pintarTarjeta('obras', 'Obras en curso', `${d.obrasEnCurso} <small>de ${d.obrasTotal}</small>`);
+    $('#mes').textContent = d.mes.charAt(0).toUpperCase() + d.mes.slice(1);
+    $('#h-beneficio').textContent = eur.format(beneficio);
+    $('#h-cobrado').textContent = eur.format(d.cobradoMes);
+    $('#h-gastos').textContent = eur.format(d.gastosMes);
+    $('#n-obras').innerHTML = `${d.obrasEnCurso} <small>de ${d.obrasTotal} obras</small>`;
+    $('#hero').classList.remove('cargando');
+    $('#t-obras').classList.remove('cargando');
   } catch (err) {
     tratarError(err, el);
+  } finally {
+    boton.classList.remove('girando');
   }
-}
-
-function pintarTarjeta(id, etiqueta, valor, clase = '') {
-  const t = $('#t-' + id);
-  t.classList.remove('cargando');
-  if (clase) t.classList.add(clase);
-  t.innerHTML = `<span class="etiqueta">${etiqueta}</span><strong>${valor}</strong>`;
 }
 
 function vistaProximamente(el) {
   el.innerHTML = `
+    <h2 class="seccion-titulo">${TITULOS[vistaActual]}</h2>
     <div class="vacio">
-      <svg viewBox="0 0 24 24"><path d="M12 8v4l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg>
+      <div class="icono-grande"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/></svg></div>
       <h2>Próximamente</h2>
       <p>Esta sección la construimos en los siguientes pasos.</p>
     </div>`;
@@ -131,11 +155,12 @@ function vistaProximamente(el) {
 
 function vistaAjustes(el) {
   el.innerHTML = `
+    <h2 class="seccion-titulo">Ajustes</h2>
     <div class="lista">
       <button class="fila" id="probar">Probar conexión</button>
       <button class="fila peligro" id="salir">Cambiar clave de acceso</button>
     </div>
-    <p class="nota">Versión 0.2 · Paso 2</p>`;
+    <p class="nota">Tabi An · versión 0.3</p>`;
   $('#probar').addEventListener('click', async () => {
     try { const d = await api('ping'); aviso(d.mensaje, 'ok'); } catch (err) { aviso(err.message, 'mal'); }
   });
@@ -149,7 +174,7 @@ function tratarError(err, el) {
   const sinRed = !navigator.onLine;
   el.innerHTML = `
     <div class="vacio">
-      <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <div class="icono-grande"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
       <h2>${sinRed ? 'Sin conexión' : 'No se han podido cargar los datos'}</h2>
       <p>${sinRed ? 'Vuelve a intentarlo cuando tengas cobertura.' : err.message}</p>
       <button class="boton" id="reintentar">Reintentar</button>
